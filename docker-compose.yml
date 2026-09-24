@@ -1,0 +1,90 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+
+    # User/password/nama database SEMUA diambil dari .env (lewat ${VAR}).
+    # Tidak ada nilai hardcode di sini.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+    networks:
+      - telemetry_internal
+
+    healthcheck:
+      # Sengaja TIDAK use "-d <db>" -- database aplikasi mungkin nanti
+      # disaexist (volume lama), dan kesehatan db cuma butuh server jalan.
+      # Database sendiri auto-creat oleh docker-entrypoint.sh sebelum migrasi.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    container_name: telemetry-apigps
+    ports:
+      - "127.0.0.1:8555:8000"
+    build: .
+
+    restart: unless-stopped
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # DATABASE_URL dibangun dari variabel .env -- bukan nilai hardcode.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DEVICE_API_KEY: ${DEVICE_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+
+      # --- MQTT (jalur GSM/seluler hemat kuota, lihat app/gps_mqtt_client.py)
+      # Backend konek ke listener INTERNAL broker (port 1883, anonymous,
+      # tanpa TLS -- aman karena dibatasi network Docker, bukan port
+      # publik), BUKAN listener publik 8883 yang dipakai device eksternal
+      # (itu pakai TLS cert self-signed yang subscriber ini tidak perlu
+      # verifikasi). ---
+      GPS_MQTT_BROKER: ${GPS_MQTT_BROKER:-mqtt}
+      GPS_MQTT_PORT: ${GPS_MQTT_INTERNAL_PORT:-1883}
+      GPS_MQTT_TLS: "false"
+      GPS_MQTT_CLIENT_ID: ${GPS_MQTT_CLIENT_ID:-telemetry-gps-backend-sub}
+
+    expose:
+      - "8000"
+
+    networks:
+      - telemetry_internal
+      - devops_proxy
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./mqtt/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mqtt/config/passwd:/mosquitto/config/passwd:ro
+      - ./mqtt/config/certs:/mosquitto/config/certs:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - telemetry_internal
+
+networks:
+  telemetry_internal:
+    driver: bridge
+
+  devops_proxy:
+    external: true
+    name: devops_default
+
+volumes:
+  db_data:
+  mosquitto_data:
+  mosquitto_log:
