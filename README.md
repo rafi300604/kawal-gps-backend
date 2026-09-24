@@ -146,15 +146,16 @@ docker run --rm -v "$(pwd)/mqtt/config:/mosquitto/config" eclipse-mosquitto:2 \
 ```
 
 Satu kredensial dipakai bersama semua device di fleet (sama seperti
-`DEVICE_API_KEY` di jalur HTTPS) — nilai yang dipakai untuk fitur ini:
+`DEVICE_API_KEY` di jalur HTTPS). Generate password acak sendiri, JANGAN
+commit nilai asli ke repo (repo ini publik):
 
-```
-USERNAME: gps-device
-PASSWORD: m_Ckadmel37PsIoTCWSUBLJBxjCtXxIv
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
 ```
 
-(Berikan dua nilai ini ke firmware untuk diisi ke
-`MQTT_USERNAME`/`MQTT_PASSWORD` di `skripsi.ino`.)
+(Berikan `<USERNAME>` dan password hasil generate di atas ke firmware
+untuk diisi ke `MQTT_USERNAME`/`MQTT_PASSWORD` di `skripsi.ino` — simpan
+di tempat lain, bukan di repo ini.)
 
 **2. Sertifikat TLS** — self-signed cukup untuk skala thesis (device
 perlu dikonfigurasi skip verifikasi hostname/CA, bukan cert asli dari
