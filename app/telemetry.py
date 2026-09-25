@@ -139,28 +139,20 @@ async def persist_telemetry(
             )
 
     if tamper:
-        # Alert tamper TIDAK pakai cooldown berbasis waktu seperti kuota --
-        # itu kejadian kritis/diskrit, bukan kondisi berkelanjutan yang perlu
-        # di-suppress. Sebagai gantinya, deteksi rising edge: catat baris
-        # device_alerts baru cuma kalau titik SEBELUMNYA (yang paling baru,
-        # kalau ada) belum tamper.
-        previous = await db.execute(
-            select(models.Telemetry.tamper)
-            .where(models.Telemetry.device_sn == sn)
-            .order_by(models.Telemetry.ts.desc())
-            .limit(1)
-        )
-        was_already_tampered = previous.scalar_one_or_none() or False
-        if not was_already_tampered:
-            db.add(
-                models.DeviceAlert(
-                    device_sn=sn,
-                    type="tamper",
-                    message=f"Device {sn} diusik (tamper) pada "
-                    f"{timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                    value=None,
-                )
+        # Setiap titik data dengan tamper=true membuat baris device_alerts
+        # baru sendiri-sendiri, TANPA suppression/cooldown/rising-edge --
+        # ini kejadian kritis yang harus langsung memicu notifikasi/alarm di
+        # app terlepas dari seberapa dekat jaraknya dengan titik tamper
+        # sebelumnya (bisa 1 detik sekalipun).
+        db.add(
+            models.DeviceAlert(
+                device_sn=sn,
+                type="tamper",
+                message=f"Device {sn} diusik (tamper) pada "
+                f"{timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                value=None,
             )
+        )
 
     row = models.Telemetry(
         device_sn=sn,
