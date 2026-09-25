@@ -115,6 +115,7 @@ async def persist_telemetry(
     device.last_speed_knots = speed_knots
     device.last_heading = heading
     device.last_transmitted_at = timestamp
+    device.tamper = tamper
 
     if QUOTA_WARNING_KEYWORD in data_source.lower():
         cutoff = datetime.now(timezone.utc) - QUOTA_ALERT_COOLDOWN

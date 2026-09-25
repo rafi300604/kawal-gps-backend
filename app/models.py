@@ -34,6 +34,15 @@ class Device(Base):
     last_transmitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Status tamper SAAT INI (bukan riwayat) -- diupdate tiap transmisi baru
+    # masuk, sama seperti power_source/data_source di atas. Ditambahkan
+    # karena device_alerts cuma dibuat SEKALI per rising edge -- untuk
+    # kejadian tamper yang berlangsung lama (lebih dari beberapa menit),
+    # mengandalkan "ada alert baru-baru ini" jadi salah begitu alert itu
+    # sudah lewat jendela waktunya di app, padahal device MASIH tertampering
+    # saat ini. Field ini kasih app sumber kebenaran langsung, tidak perlu
+    # hitung-hitungan waktu dari alert lagi.
+    tamper: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Telemetry(Base):

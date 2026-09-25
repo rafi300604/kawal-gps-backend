@@ -83,6 +83,7 @@ class DeviceState(BaseModel):
     )
     heading: float | None = Field(None, validation_alias="last_heading")
     last_transmitted_at: datetime | None = Field(None, serialization_alias="lastTransmittedAt")
+    tamper: bool = False
 
 
 # ===================================================================
