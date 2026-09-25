@@ -18,7 +18,7 @@ from .gps_mqtt_client import start_mqtt_client, stop_mqtt_client
 
 # Skema tabel dikelola lewat Alembic (alembic/versions/), dijalankan
 # otomatis oleh docker-entrypoint.sh sebelum uvicorn start.
-app = FastAPI(title="Jejak Pintar Telemetry Ingest")
+app = FastAPI(title="Kawal GPS Telemetry Ingest")
 
 
 @app.on_event("startup")

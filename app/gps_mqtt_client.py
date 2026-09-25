@@ -24,7 +24,7 @@ def _get_mqtt_config():
     # sama dengan broker, tidak perlu lewat listener publik 8883 (yang pakai
     # cert self-signed + auth, khusus device eksternal dari internet).
     port = int(os.getenv("GPS_MQTT_PORT", "1883"))
-    client_id = os.getenv("GPS_MQTT_CLIENT_ID") or f"telemetry-gps-backend-{socket.gethostname()}-{os.getpid()}"
+    client_id = os.getenv("GPS_MQTT_CLIENT_ID") or f"kawal-gps-backend-{socket.gethostname()}-{os.getpid()}"
     return {
         "broker": broker,
         "port": port,

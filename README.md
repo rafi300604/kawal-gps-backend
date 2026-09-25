@@ -39,10 +39,9 @@ cp .env.example .env
 
 Isi `.env`:
 
-- `POSTGRES_USER` — superuser Postgres (dipakai healthcheck & yang create
-  database). Biarkan `postgres` kecuali punya alasan khusus.
+- `POSTGRES_USER` — user Postgres (mis. `kawal_gps_user`).
 - `POSTGRES_PASSWORD` — ganti dari default.
-- `POSTGRES_DB` — nama database aplikasi, mis. `telemetry_gps`. Wajib sama
+- `POSTGRES_DB` — nama database aplikasi, mis. `kawal_gps_db`. Wajib sama
   di semua container (compose menyusun `DATABASE_URL` dari nilai ini).
 - `DEVICE_API_KEY` — shared secret untuk **semua** device di fleet.
   Generate dengan:

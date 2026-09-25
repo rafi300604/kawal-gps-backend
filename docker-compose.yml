@@ -1,5 +1,6 @@
 services:
   db:
+    container_name: kawal-gps-db
     image: postgres:16-alpine
     restart: unless-stopped
 
@@ -11,10 +12,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
 
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - kawal_gps_db_data:/var/lib/postgresql/data
 
     networks:
-      - telemetry_internal
+      - kawal_gps_internal
 
     healthcheck:
       # Sengaja TIDAK use "-d <db>" -- database aplikasi mungkin nanti
@@ -26,7 +27,7 @@ services:
       retries: 10
 
   api:
-    container_name: telemetry-apigps
+    container_name: kawal-gps-api
     ports:
       - "127.0.0.1:8555:8000"
     build: .
@@ -53,16 +54,17 @@ services:
       GPS_MQTT_BROKER: ${GPS_MQTT_BROKER:-mqtt}
       GPS_MQTT_PORT: ${GPS_MQTT_INTERNAL_PORT:-1883}
       GPS_MQTT_TLS: "false"
-      GPS_MQTT_CLIENT_ID: ${GPS_MQTT_CLIENT_ID:-telemetry-gps-backend-sub}
+      GPS_MQTT_CLIENT_ID: ${GPS_MQTT_CLIENT_ID:-kawal-gps-backend-sub}
 
     expose:
       - "8000"
 
     networks:
-      - telemetry_internal
+      - kawal_gps_internal
       - devops_proxy
 
   mqtt:
+    container_name: kawal-gps-mqtt
     image: eclipse-mosquitto:2
     restart: unless-stopped
     ports:
@@ -71,13 +73,13 @@ services:
       - ./mqtt/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mqtt/config/passwd:/mosquitto/config/passwd:ro
       - ./mqtt/config/certs:/mosquitto/config/certs:ro
-      - mosquitto_data:/mosquitto/data
-      - mosquitto_log:/mosquitto/log
+      - kawal_gps_mosquitto_data:/mosquitto/data
+      - kawal_gps_mosquitto_log:/mosquitto/log
     networks:
-      - telemetry_internal
+      - kawal_gps_internal
 
 networks:
-  telemetry_internal:
+  kawal_gps_internal:
     driver: bridge
 
   devops_proxy:
@@ -85,6 +87,6 @@ networks:
     name: devops_default
 
 volumes:
-  db_data:
-  mosquitto_data:
-  mosquitto_log:
+  kawal_gps_db_data:
+  kawal_gps_mosquitto_data:
+  kawal_gps_mosquitto_log:
