@@ -41,13 +41,14 @@ if not DATABASE_URL:
         "Salin .env.example jadi .env, isi nilainya, lalu jalankan lewat "
         "'docker compose up' (compose inject DATABASE_URL ke container)."
     )
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+# configparser di alembic butuh %% untuk escape karakter % dari URL-encoding (misal %23 dari tanda #)
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=DATABASE_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -63,9 +64,10 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    connectable = create_async_engine(
+        DATABASE_URL,
         poolclass=pool.NullPool,
     )
 
