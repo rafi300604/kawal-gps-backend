@@ -18,10 +18,8 @@ services:
       - kawal_gps_internal
 
     healthcheck:
-      # Sengaja TIDAK use "-d <db>" -- database aplikasi mungkin nanti
-      # disaexist (volume lama), dan kesehatan db cuma butuh server jalan.
-      # Database sendiri auto-creat oleh docker-entrypoint.sh sebelum migrasi.
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      # Menggunakan -d postgres agar tidak default mencari database dengan nama user
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -38,8 +36,13 @@ services:
       db:
         condition: service_healthy
 
-    # DATABASE_URL dibangun dari variabel .env -- bukan nilai hardcode.
+    # DATABASE_URL dibangun dari variabel .env -- dengan fallback individual env
     environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       DEVICE_API_KEY: ${DEVICE_API_KEY}
       ADMIN_API_KEY: ${ADMIN_API_KEY}

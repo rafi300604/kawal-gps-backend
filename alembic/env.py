@@ -21,9 +21,20 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# DATABASE_URL datang dari .env (di-inject docker compose ke container) --
-# no hardcode, dan kalau belum diset langsung fail dengan pesan jelas.
-DATABASE_URL = os.getenv("DATABASE_URL")
+# DATABASE_URL datang dari .env (di-inject docker compose ke container)
+from urllib.parse import quote_plus
+
+user = os.getenv("POSTGRES_USER")
+password = os.getenv("POSTGRES_PASSWORD")
+dbname = os.getenv("POSTGRES_DB")
+host = os.getenv("POSTGRES_HOST", "db")
+port = os.getenv("POSTGRES_PORT", "5432")
+
+if user and password and dbname:
+    DATABASE_URL = f"postgresql+asyncpg://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{dbname}"
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL")
+
 if not DATABASE_URL:
     raise RuntimeError(
         "DATABASE_URL belum diset -- harus diambil dari .env. "
