@@ -70,9 +70,9 @@ services:
     ports:
       - "8883:8883"
     volumes:
-      - ./mqtt/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mqtt/config/passwd:/mosquitto/config/passwd:ro
-      - ./mqtt/config/certs:/mosquitto/config/certs:ro
+      - ${MQTT_CONFIG_DIR:-/opt/kawal-gps/mqtt/config}/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ${MQTT_CONFIG_DIR:-/opt/kawal-gps/mqtt/config}/passwd:/mosquitto/config/passwd:ro
+      - ${MQTT_CONFIG_DIR:-/opt/kawal-gps/mqtt/config}/certs:/mosquitto/config/certs:ro
       - kawal_gps_mosquitto_data:/mosquitto/data
       - kawal_gps_mosquitto_log:/mosquitto/log
     networks:
