@@ -73,14 +73,17 @@ services:
 
   mqtt:
     container_name: kawal-gps-mqtt
-    image: eclipse-mosquitto:2
+    # Dikunci ke versi yang sudah diuji (ACL + per_listener_settings), supaya
+    # pull/redeploy tidak diam-diam mengganti perilaku broker.
+    image: eclipse-mosquitto:2.1.2-alpine
     restart: unless-stopped
     ports:
       - "8883:8883"
     volumes:
-      - ${MQTT_CONFIG_DIR:-/opt/kawal-gps/mqtt/config}/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ${MQTT_CONFIG_DIR:-/opt/kawal-gps/mqtt/config}/passwd:/mosquitto/config/passwd:ro
-      - ${MQTT_CONFIG_DIR:-/opt/kawal-gps/mqtt/config}/certs:/mosquitto/config/certs:ro
+      # Seluruh folder config (mosquitto.conf, passwd, acl, certs/) dipasang
+      # sekaligus, supaya file baru seperti `acl` cukup ditaruh di folder ini
+      # di VPS tanpa mengubah compose lagi.
+      - ${MQTT_CONFIG_DIR:-/opt/kawal-gps/mqtt/config}:/mosquitto/config:ro
       - kawal_gps_mosquitto_data:/mosquitto/data
       - kawal_gps_mosquitto_log:/mosquitto/log
     networks:

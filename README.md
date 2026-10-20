@@ -175,6 +175,61 @@ TLS+auth, dipakai device) langsung ikut jalan bareng service lain.
 di-`.gitignore` — ini kredensial/private key asli, jangan pernah commit
 ke git.
 
+**4. ACL** — batasi tiap device ke topic miliknya sendiri. Salin
+`mqtt/config/acl` (tidak berisi rahasia, ada di repo) ke folder config broker
+di VPS, pastikan `mosquitto.conf` di VPS punya `acl_file
+/mosquitto/config/acl` di bawah `listener 8883` (lihat template
+`mqtt/config/mosquitto.conf`), lalu `docker restart kawal-gps-mqtt`. Hasilnya
+user device hanya boleh menulis `telemetry/<SN>` & `cmd-ack/<SN>` dan membaca
+`cmd/<SN>` (SN = client id); device tidak bisa mengirim perintah atau membaca
+data device lain. Listener internal 1883 (backend) sengaja tanpa ACL — tidak
+terbuka ke internet.
+
+## Perintah ke device (MQTT dua arah)
+
+Server bisa mengirim perintah ke device lewat topic `cmd/<SN>`; device
+membalas di `cmd-ack/<SN>`. Saat ini ada dua perintah:
+
+| Perintah | Isi | Efek di device |
+|---|---|---|
+| `interval` | `{"cmd":"interval","interval_s":30,"duration_min":60}` | Interval kirim jadi `interval_s` detik (10–1800) di semua mode selama `duration_min` menit (1–180), lalu kembali normal sendiri. Reboot juga membatalkannya. |
+| `reset` | `{"cmd":"reset"}` | Batalkan override interval sekarang juga. |
+
+Kirim (hanya pemegang `X-Admin-Key`):
+
+```bash
+curl -X POST https://<domain>/devices/ESP32-01/commands \
+  -H "X-Admin-Key: <ADMIN_API_KEY>" -H "Content-Type: application/json" \
+  -d '{"cmd":"interval","interval_s":30,"duration_min":60}'
+
+# cek status
+curl https://<domain>/devices/ESP32-01/commands -H "X-Admin-Key: <ADMIN_API_KEY>"
+```
+
+Atau langsung dari database (mis. DBeaver) — backend mengambil baris baru
+ini dalam ≤10 detik:
+
+```sql
+INSERT INTO device_commands (device_sn, cmd, interval_s, duration_min)
+VALUES ('ESP32-01', 'interval', 30, 60);
+```
+
+Status di tabel `device_commands`: `pending` → `sent` → `applied` / `reset` /
+`rejected` (dibalas device), atau `invalid` (nilai di luar batas, tidak
+dikirim), `superseded` (digantikan perintah yang lebih baru untuk device yang
+sama), `expired` (tidak dibalas dalam 60 menit).
+
+Cara kerja pengiriman: perintah dipublish **retained** (QoS 1) dan diulang tiap
+2 menit sampai dibalas, karena lewat GSM device hanya tersambung ke broker saat
+mengirim telemetry (di mode SLEEP bisa 30 menit sekali). Begitu device
+subscribe lagi, broker langsung menyerahkan perintah terakhir; setelah dibalas
+atau kedaluwarsa, retained dihapus. Jadi perintah ke device yang sedang SLEEP
+bisa baru diterima sampai ±30 menit kemudian.
+
+Keterbatasan yang diketahui: semua device memakai satu kredensial MQTT bersama,
+jadi pemegang kredensial itu bisa memakai client id device lain (menyamar).
+Perbaikannya: username per device + ACL `%u`.
+
 ## Baca data (admin/dashboard)
 
 State terkini semua device:

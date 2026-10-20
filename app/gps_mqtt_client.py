@@ -3,18 +3,29 @@ GSM/seluler (hemat kuota data: satu koneksi persisten, bukan buka sesi TLS
 baru tiap kirim -- lihat FIRMWARE_CONTRACT.md).
 
 Payload di topic `telemetry/<SN>` adalah HEX MENTAH (bukan dibungkus JSON)
--- identitas device datang dari topic, bukan dari payload."""
+-- identitas device datang dari topic, bukan dari payload.
+
+Arah sebaliknya (server -> device): perintah di `cmd/<SN>`, dibalas device di
+`cmd-ack/<SN>` -- lihat app/commands.py."""
 import asyncio
 import os
 import socket
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from . import telemetry
+from . import commands, telemetry
 from .database import async_session
 
 _MQTT_CLIENT = None
 _MAIN_LOOP = None
+_DISPATCH_TASK = None
+_DISPATCH_WAKE: asyncio.Event | None = None
+DISPATCH_EVERY_S = 10
+# Dispatcher & pemroses ack sama-sama memutuskan publish/hapus retained
+# cmd/<SN> berdasarkan isi DB; lock ini mencegah ack menghapus retained milik
+# perintah yang baru saja dikirim di sela-sela await keduanya.
+_COMMAND_LOCK: asyncio.Lock | None = None
 
 
 def _get_mqtt_config():
@@ -32,13 +43,14 @@ def _get_mqtt_config():
         "password": os.getenv("GPS_MQTT_PASSWORD", ""),
         "client_id": client_id,
         "topic": "telemetry/+",
+        "ack_topic": "cmd-ack/+",
         "use_tls": os.getenv("GPS_MQTT_TLS", "false").lower() == "true",
     }
 
 
-def _extract_sn_from_topic(topic: str) -> str | None:
+def _extract_sn_from_topic(topic: str, prefix: str = "telemetry") -> str | None:
     parts = topic.strip("/").split("/")
-    if len(parts) == 2 and parts[0] == "telemetry":
+    if len(parts) == 2 and parts[0] == prefix:
         return parts[1]
     return None
 
@@ -68,8 +80,9 @@ async def _handle_telemetry_message(sn: str, hex_payload: str):
 def _on_connect(client, userdata, flags, rc, properties=None):
     config = _get_mqtt_config()
     if rc == 0:
-        print(f"[mqtt] Terhubung; subscribe ke {config['topic']}", flush=True)
-        client.subscribe(config["topic"])
+        print(f"[mqtt] Terhubung; subscribe ke {config['topic']} & {config['ack_topic']}", flush=True)
+        client.subscribe([(config["topic"], 0), (config["ack_topic"], 1)])
+        trigger_command_dispatch()  # kirim perintah yang tertunda selama terputus
     else:
         print(f"[mqtt] Gagal connect, kode {rc}", flush=True)
 
@@ -78,7 +91,41 @@ def _on_disconnect(client, userdata, rc, properties=None):
     print(f"[mqtt] Terputus, kode {rc}", flush=True)
 
 
+def _run_on_main_loop(coro, what: str):
+    if _MAIN_LOOP is not None and _MAIN_LOOP.is_running():
+        asyncio.run_coroutine_threadsafe(coro, _MAIN_LOOP)
+    else:
+        try:
+            asyncio.run(coro)
+        except Exception as exc:
+            print(f"[mqtt] Error memproses {what}: {exc}", flush=True)
+
+
+def clear_retained_command(sn: str):
+    """Hapus perintah retained di cmd/<SN> (payload kosong + retain)."""
+    if _MQTT_CLIENT is not None:
+        _MQTT_CLIENT.publish(f"cmd/{sn}", payload=b"", qos=1, retain=True)
+        print(f"[mqtt] Retained cmd/{sn} dihapus", flush=True)
+
+
+async def _handle_ack_message(sn: str, text: str):
+    async with _COMMAND_LOCK, async_session() as db:
+        print(f"[mqtt] cmd-ack/{sn}: {await commands.apply_ack(db, sn, text)}", flush=True)
+        if not await commands.has_active_command(db, sn):
+            clear_retained_command(sn)
+
+
 def _on_message(client, userdata, msg):
+    ack_sn = _extract_sn_from_topic(msg.topic, prefix="cmd-ack")
+    if ack_sn is not None:
+        try:
+            text = msg.payload.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            print(f"[mqtt] Ack bukan teks di topic {msg.topic}", flush=True)
+            return
+        _run_on_main_loop(_handle_ack_message(ack_sn, text), f"ack dari {ack_sn}")
+        return
+
     sn = _extract_sn_from_topic(msg.topic)
     if sn is None:
         print(f"[mqtt] Topic tidak dikenali: {msg.topic}", flush=True)
@@ -89,14 +136,53 @@ def _on_message(client, userdata, msg):
         print(f"[mqtt] Payload bukan teks ascii/hex di topic {msg.topic}", flush=True)
         return
 
-    global _MAIN_LOOP
-    if _MAIN_LOOP is not None and _MAIN_LOOP.is_running():
-        asyncio.run_coroutine_threadsafe(_handle_telemetry_message(sn, hex_payload), _MAIN_LOOP)
-    else:
+    _run_on_main_loop(_handle_telemetry_message(sn, hex_payload), f"pesan dari {sn}")
+
+
+def trigger_command_dispatch():
+    """Bangunkan dispatcher sekarang (thread-safe) -- dipanggil setelah
+    perintah baru dibuat lewat API dan saat (re)connect ke broker."""
+    if _DISPATCH_WAKE is not None and _MAIN_LOOP is not None and _MAIN_LOOP.is_running():
+        _MAIN_LOOP.call_soon_threadsafe(_DISPATCH_WAKE.set)
+
+
+async def _dispatch_once():
+    client = _MQTT_CLIENT
+    if client is None or not client.is_connected():
+        return
+    now = datetime.now(timezone.utc)
+    async with _COMMAND_LOCK, async_session() as db:
+        due, clear_retained = await commands.due_for_sending(db, now)
+        for sn in clear_retained:
+            clear_retained_command(sn)
+        for command in due:
+            # retained: device yang sedang offline tetap menerimanya saat
+            # subscribe lagi -- lihat docstring app/commands.py.
+            info = client.publish(
+                f"cmd/{command.device_sn}", commands.build_payload(command), qos=1, retain=True
+            )
+            if info.rc == mqtt.MQTT_ERR_SUCCESS:
+                command.status = "sent"
+                command.sent_at = now
+                print(f"[mqtt] Perintah {command.id} dikirim ke cmd/{command.device_sn}", flush=True)
+            else:
+                print(f"[mqtt] Gagal kirim perintah {command.id}: rc={info.rc}", flush=True)
+        await db.commit()
+
+
+async def _command_dispatcher():
+    """Kirim perintah `pending` (dari API maupun INSERT manual) dan kirim ulang
+    yang belum dibalas -- lihat commands.due_for_sending()."""
+    while True:
         try:
-            asyncio.run(_handle_telemetry_message(sn, hex_payload))
+            await _dispatch_once()
         except Exception as exc:
-            print(f"[mqtt] Error memproses pesan dari {sn}: {exc}", flush=True)
+            print(f"[mqtt] Dispatcher perintah error: {exc}", flush=True)
+        try:
+            await asyncio.wait_for(_DISPATCH_WAKE.wait(), timeout=DISPATCH_EVERY_S)
+        except asyncio.TimeoutError:
+            pass
+        _DISPATCH_WAKE.clear()
 
 
 def start_mqtt_client(loop=None):
@@ -147,6 +233,7 @@ def start_mqtt_client(loop=None):
             client.connect(config["broker"], config["port"], keepalive=60)
             client.loop_start()
             _MQTT_CLIENT = client
+            _start_dispatcher()
             print(f"[mqtt] Client jalan; broker={config['broker']}:{config['port']}", flush=True)
             return client
         except Exception as exc:
@@ -158,8 +245,20 @@ def start_mqtt_client(loop=None):
     return None
 
 
+def _start_dispatcher():
+    global _DISPATCH_TASK, _DISPATCH_WAKE, _COMMAND_LOCK
+    if _DISPATCH_TASK is not None or _MAIN_LOOP is None:
+        return
+    _DISPATCH_WAKE = asyncio.Event()
+    _COMMAND_LOCK = asyncio.Lock()
+    _DISPATCH_TASK = _MAIN_LOOP.create_task(_command_dispatcher())
+
+
 def stop_mqtt_client():
-    global _MQTT_CLIENT
+    global _MQTT_CLIENT, _DISPATCH_TASK
+    if _DISPATCH_TASK is not None:
+        _DISPATCH_TASK.cancel()
+        _DISPATCH_TASK = None
     if _MQTT_CLIENT is None:
         return
     try:

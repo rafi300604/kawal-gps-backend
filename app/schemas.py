@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TelemetryIn(BaseModel):
@@ -168,3 +169,37 @@ class DeviceAlertOut(BaseModel):
     message: str
     value: float | None = None
     created_at: datetime = Field(serialization_alias="createdAt")
+
+
+# ===================================================================
+# Device commands -- perintah server -> device lewat MQTT (lihat
+# app/commands.py). Nama field input sengaja snake_case, sama persis dengan
+# payload yang diterima firmware.
+# ===================================================================
+
+
+class DeviceCommandIn(BaseModel):
+    cmd: Literal["interval", "reset"]
+    interval_s: int | None = Field(None, ge=10, le=1800, description="Interval kirim sementara (detik)")
+    duration_min: int | None = Field(None, ge=1, le=180, description="Lama berlaku (menit), lalu kembali normal")
+
+    @model_validator(mode="after")
+    def _interval_needs_values(self):
+        if self.cmd == "interval" and (self.interval_s is None or self.duration_min is None):
+            raise ValueError("cmd 'interval' butuh interval_s dan duration_min")
+        return self
+
+
+class DeviceCommandOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: int
+    device_sn: str = Field(serialization_alias="deviceSn")
+    cmd: str
+    interval_s: int | None = Field(None, serialization_alias="intervalS")
+    duration_min: int | None = Field(None, serialization_alias="durationMin")
+    status: str
+    ack_message: str | None = Field(None, serialization_alias="ackMessage")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    sent_at: datetime | None = Field(None, serialization_alias="sentAt")
+    acked_at: datetime | None = Field(None, serialization_alias="ackedAt")

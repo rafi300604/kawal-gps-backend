@@ -14,7 +14,12 @@ from .auth import (
     verify_password,
 )
 from .database import get_db
-from .gps_mqtt_client import start_mqtt_client, stop_mqtt_client
+from .gps_mqtt_client import (
+    clear_retained_command,
+    start_mqtt_client,
+    stop_mqtt_client,
+    trigger_command_dispatch,
+)
 
 # Skema tabel dikelola lewat Alembic (alembic/versions/), dijalankan
 # otomatis oleh docker-entrypoint.sh sebelum uvicorn start.
@@ -148,6 +153,51 @@ async def list_device_alerts(sn: str, limit: int = 20, db: AsyncSession = Depend
     return result.scalars().all()
 
 
+@app.post(
+    "/devices/{sn}/commands",
+    response_model=schemas.DeviceCommandOut,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
+async def create_device_command(
+    sn: str, payload: schemas.DeviceCommandIn, db: AsyncSession = Depends(get_db)
+):
+    """Kirim perintah ke device lewat MQTT `cmd/<SN>`, mis. percepat interval
+    kirim sementara: {"cmd":"interval","interval_s":30,"duration_min":60},
+    atau batalkan: {"cmd":"reset"}. Hanya pemegang X-Admin-Key. Status
+    (pending/sent/applied/rejected/expired) dicek lewat GET di bawah."""
+    result = await db.execute(select(models.Device.id).where(models.Device.sn == sn))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Device tidak ditemukan")
+    command = models.DeviceCommand(
+        device_sn=sn,
+        cmd=payload.cmd,
+        interval_s=payload.interval_s if payload.cmd == "interval" else None,
+        duration_min=payload.duration_min if payload.cmd == "interval" else None,
+        status="pending",
+    )
+    db.add(command)
+    await db.commit()
+    await db.refresh(command)
+    trigger_command_dispatch()
+    return command
+
+
+@app.get(
+    "/devices/{sn}/commands",
+    response_model=list[schemas.DeviceCommandOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_device_commands(sn: str, limit: int = 20, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(models.DeviceCommand)
+        .where(models.DeviceCommand.device_sn == sn)
+        .order_by(models.DeviceCommand.id.desc())
+        .limit(min(limit, 100))
+    )
+    return result.scalars().all()
+
+
 @app.delete(
     "/devices/{sn}",
     status_code=204,
@@ -165,10 +215,12 @@ async def delete_device(sn: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Device tidak ditemukan")
 
     await db.execute(delete(models.Waypoint).where(models.Waypoint.device_sn == sn))
+    await db.execute(delete(models.DeviceCommand).where(models.DeviceCommand.device_sn == sn))
     await db.execute(delete(models.DeviceAlert).where(models.DeviceAlert.device_sn == sn))
     await db.execute(delete(models.Telemetry).where(models.Telemetry.device_sn == sn))
     await db.delete(device)
     await db.commit()
+    clear_retained_command(sn)  # jangan tinggalkan perintah retained di cmd/<SN>
 
 
 @app.get(
