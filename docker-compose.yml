@@ -43,9 +43,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_HOST: db
+      # Pakai nama kontainer yang unik, BUKAN alias service "db": pada network
+      # bersama devops_proxy ada container lain (gameaksara_postgres) yang juga
+      # beralias "db", sehingga host "db" bisa ter-resolve ke Postgres yang salah.
+      POSTGRES_HOST: kawal-gps-db
       POSTGRES_PORT: "5432"
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@kawal-gps-db:5432/${POSTGRES_DB}
       DEVICE_API_KEY: ${DEVICE_API_KEY}
       ADMIN_API_KEY: ${ADMIN_API_KEY}
       JWT_SECRET: ${JWT_SECRET}
