@@ -154,6 +154,8 @@ class DeviceCommand(Base):
     cmd: Mapped[str] = mapped_column(String(20))
     interval_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Lama bunyi buzzer untuk cmd "buzzer" (detik), migrasi 0008.
+    duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     ack_message: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

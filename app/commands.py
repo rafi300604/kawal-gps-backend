@@ -4,6 +4,7 @@ Topic & format (kontrak dengan firmware skripsi.ino, lihat FIRMWARE_CONTRACT.md)
 - server publish ke `cmd/<SN>` (QoS 1), payload JSON:
     {"id":12,"cmd":"interval","interval_s":30,"duration_min":60}
     {"id":13,"cmd":"reset"}
+    {"id":14,"cmd":"buzzer","duration_s":10}   (bunyikan buzzer 1-20 detik)
     {"id":15,"cmd":"test_tamper"}   (simulasi tamper: buzzer + kirim titik
                                     tamper bertanda uji, flags bit4)
 - device membalas ke `cmd-ack/<SN>`, payload JSON:
@@ -31,7 +32,9 @@ from . import models
 # Harus sama dengan batas yang divalidasi firmware.
 INTERVAL_S_MIN, INTERVAL_S_MAX = 10, 1800
 DURATION_MIN_MIN, DURATION_MIN_MAX = 1, 180
-COMMANDS = ("interval", "reset", "test_tamper")
+# Sama dengan batas alarm tamper firmware (TAMPER_ALARM_MAX_MS 20 detik).
+DURATION_S_MIN, DURATION_S_MAX = 1, 20
+COMMANDS = ("interval", "reset", "test_tamper", "buzzer")
 
 # Kirim ulang kalau belum dibalas (koneksi GSM device bisa sempat putus).
 RESEND_AFTER = timedelta(minutes=2)
@@ -46,7 +49,9 @@ DELIVERY_TIMEOUT = timedelta(minutes=60)
 ACK_STATUSES = ("applied", "reset", "rejected")
 
 
-def validation_error(cmd: str, interval_s: int | None, duration_min: int | None) -> str | None:
+def validation_error(
+    cmd: str, interval_s: int | None, duration_min: int | None, duration_s: int | None = None
+) -> str | None:
     """Alasan perintah tidak valid, atau None kalau valid. Dipakai juga untuk
     baris yang di-INSERT manual (tidak lewat validasi skema API)."""
     if cmd not in COMMANDS:
@@ -56,6 +61,9 @@ def validation_error(cmd: str, interval_s: int | None, duration_min: int | None)
             return f"interval_s harus {INTERVAL_S_MIN}-{INTERVAL_S_MAX} detik"
         if duration_min is None or not DURATION_MIN_MIN <= duration_min <= DURATION_MIN_MAX:
             return f"duration_min harus {DURATION_MIN_MIN}-{DURATION_MIN_MAX} menit"
+    if cmd == "buzzer":
+        if duration_s is None or not DURATION_S_MIN <= duration_s <= DURATION_S_MAX:
+            return f"duration_s harus {DURATION_S_MIN}-{DURATION_S_MAX} detik"
     return None
 
 
@@ -64,6 +72,8 @@ def build_payload(command: models.DeviceCommand) -> str:
     if command.cmd == "interval":
         body["interval_s"] = command.interval_s
         body["duration_min"] = command.duration_min
+    elif command.cmd == "buzzer":
+        body["duration_s"] = command.duration_s
     return json.dumps(body, separators=(",", ":"))
 
 
@@ -91,7 +101,9 @@ async def due_for_sending(
     )
     newest_per_sn: dict[str, models.DeviceCommand] = {}
     for command in result.scalars():
-        error = validation_error(command.cmd, command.interval_s, command.duration_min)
+        error = validation_error(
+            command.cmd, command.interval_s, command.duration_min, command.duration_s
+        )
         if error:
             command.status = "invalid"
             command.ack_message = error[:200]
@@ -144,5 +156,16 @@ async def apply_ack(db: AsyncSession, sn: str, payload_text: str) -> str:
     command.acked_at = datetime.now(timezone.utc)
     reason = ack.get("reason")
     command.ack_message = str(reason)[:200] if reason else None
+    if command.cmd == "buzzer" and status == "applied":
+        # Notifikasi app: alarm dibunyikan dari jarak jauh (bukan tamper).
+        db.add(
+            models.DeviceAlert(
+                device_sn=sn,
+                type="remote_alarm",
+                message=f"Alarm jarak jauh: buzzer {sn} dibunyikan {command.duration_s} detik "
+                f"atas perintah server pada {command.acked_at.strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                value=None,
+            )
+        )
     await db.commit()
     return f"perintah {command_id} -> {status}"
