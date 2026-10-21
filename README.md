@@ -188,12 +188,13 @@ terbuka ke internet.
 ## Perintah ke device (MQTT dua arah)
 
 Server bisa mengirim perintah ke device lewat topic `cmd/<SN>`; device
-membalas di `cmd-ack/<SN>`. Saat ini ada dua perintah:
+membalas di `cmd-ack/<SN>`. Saat ini ada tiga perintah:
 
 | Perintah | Isi | Efek di device |
 |---|---|---|
 | `interval` | `{"cmd":"interval","interval_s":30,"duration_min":60}` | Interval kirim jadi `interval_s` detik (10–1800) di semua mode selama `duration_min` menit (1–180), lalu kembali normal sendiri. Reboot juga membatalkannya. |
 | `reset` | `{"cmd":"reset"}` | Batalkan override interval sekarang juga. |
+| `test_tamper` | `{"cmd":"test_tamper"}` | Simulasi tamper: buzzer berbunyi seperti tamper asli dan device langsung mengirim satu titik tamper bertanda uji (flags bit4). Backend membuat alert `tamper` biasa (alarm app tetap bunyi) dengan pesan berawalan `[UJI]`. |
 
 Kirim (hanya pemegang `X-Admin-Key`):
 

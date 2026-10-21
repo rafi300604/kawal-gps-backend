@@ -73,6 +73,7 @@ async def _handle_telemetry_message(sn: str, hex_payload: str):
             data_source=decoded["data_source"],
             power_source=decoded["power_source"],
             tamper=decoded["tamper"],
+            tamper_test=decoded["tamper_test"],
         )
     print(f"[mqtt] Tersimpan: sn={sn} lat={decoded['lat']} lng={decoded['lng']}", flush=True)
 

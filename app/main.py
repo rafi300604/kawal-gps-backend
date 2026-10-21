@@ -80,6 +80,7 @@ async def ingest_telemetry(payload: schemas.TelemetryIn, db: AsyncSession = Depe
         data_source = decoded["data_source"]
         power_source = decoded["power_source"]
         tamper = decoded["tamper"]
+        tamper_test = decoded["tamper_test"]
     else:
         if payload.lat is None or payload.lng is None or payload.timestamp is None or payload.data_source is None:
             raise HTTPException(
@@ -95,6 +96,7 @@ async def ingest_telemetry(payload: schemas.TelemetryIn, db: AsyncSession = Depe
         data_source = payload.data_source
         power_source = payload.power_source
         tamper = payload.tamper if payload.tamper is not None else False
+        tamper_test = False
 
     return await telemetry.persist_telemetry(
         db,
@@ -107,6 +109,7 @@ async def ingest_telemetry(payload: schemas.TelemetryIn, db: AsyncSession = Depe
         data_source=data_source,
         power_source=power_source,
         tamper=tamper,
+        tamper_test=tamper_test,
         name=payload.name,
         status=payload.status,
     )

@@ -179,7 +179,7 @@ class DeviceAlertOut(BaseModel):
 
 
 class DeviceCommandIn(BaseModel):
-    cmd: Literal["interval", "reset"]
+    cmd: Literal["interval", "reset", "test_tamper"]
     interval_s: int | None = Field(None, ge=10, le=1800, description="Interval kirim sementara (detik)")
     duration_min: int | None = Field(None, ge=1, le=180, description="Lama berlaku (menit), lalu kembali normal")
 

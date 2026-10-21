@@ -34,7 +34,10 @@ FLAG_WIFI = 0b0001
 FLAG_QUOTA_WARNING = 0b0010
 FLAG_POWER_AKI = 0b0100
 FLAG_TAMPER = 0b1000
-FLAG_RESERVED_MASK = 0b11110000
+# Titik tamper hasil perintah server `test_tamper` (simulasi), bukan guncangan
+# asli -- alert-nya diberi tanda [UJI]. Cuma valid bersama bit3.
+FLAG_TAMPER_TEST = 0b10000
+FLAG_RESERVED_MASK = 0b11100000
 
 
 def decode_compact_telemetry(hex_payload: str) -> dict:
@@ -50,7 +53,9 @@ def decode_compact_telemetry(hex_payload: str) -> dict:
         )
     lat_raw, lng_raw, heading, speed_raw, ts_raw, flags = COMPACT_TELEMETRY_STRUCT.unpack(raw)
     if flags & FLAG_RESERVED_MASK:
-        raise HTTPException(status_code=400, detail="Bit cadangan (bit4-7) di flags harus 0")
+        raise HTTPException(status_code=400, detail="Bit cadangan (bit5-7) di flags harus 0")
+    if flags & FLAG_TAMPER_TEST and not flags & FLAG_TAMPER:
+        raise HTTPException(status_code=400, detail="tamper_test (bit4) cuma valid kalau tamper (bit3=1)")
 
     is_wifi = bool(flags & FLAG_WIFI)
     quota_warning = bool(flags & FLAG_QUOTA_WARNING)
@@ -73,6 +78,7 @@ def decode_compact_telemetry(hex_payload: str) -> dict:
         "data_source": data_source,
         "power_source": "AKI" if flags & FLAG_POWER_AKI else "BATTERY",
         "tamper": bool(flags & FLAG_TAMPER),
+        "tamper_test": bool(flags & FLAG_TAMPER_TEST),
     }
 
 
@@ -88,6 +94,7 @@ async def persist_telemetry(
     data_source: str,
     power_source: str | None,
     tamper: bool,
+    tamper_test: bool = False,
     name: str | None = None,
     status: str | None = None,
 ) -> models.Device:
@@ -144,15 +151,15 @@ async def persist_telemetry(
         # ini kejadian kritis yang harus langsung memicu notifikasi/alarm di
         # app terlepas dari seberapa dekat jaraknya dengan titik tamper
         # sebelumnya (bisa 1 detik sekalipun).
-        db.add(
-            models.DeviceAlert(
-                device_sn=sn,
-                type="tamper",
-                message=f"Device {sn} diusik (tamper) pada "
-                f"{timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                value=None,
-            )
+        # Simulasi (perintah `test_tamper`) tetap type "tamper" supaya alarm
+        # app sama persis dengan aslinya, tapi pesannya ditandai [UJI].
+        stamp = f"{timestamp.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        message = (
+            f"[UJI] Device {sn} diusik (tamper) pada {stamp} - simulasi dari perintah server"
+            if tamper_test
+            else f"Device {sn} diusik (tamper) pada {stamp}"
         )
+        db.add(models.DeviceAlert(device_sn=sn, type="tamper", message=message, value=None))
 
     row = models.Telemetry(
         device_sn=sn,

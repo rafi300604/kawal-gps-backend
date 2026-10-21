@@ -4,6 +4,8 @@ Topic & format (kontrak dengan firmware skripsi.ino, lihat FIRMWARE_CONTRACT.md)
 - server publish ke `cmd/<SN>` (QoS 1), payload JSON:
     {"id":12,"cmd":"interval","interval_s":30,"duration_min":60}
     {"id":13,"cmd":"reset"}
+    {"id":15,"cmd":"test_tamper"}   (simulasi tamper: buzzer + kirim titik
+                                    tamper bertanda uji, flags bit4)
 - device membalas ke `cmd-ack/<SN>`, payload JSON:
     {"id":12,"status":"applied", ...} / {"id":13,"status":"reset"} /
     {"id":14,"status":"rejected","reason":"..."}
@@ -29,7 +31,7 @@ from . import models
 # Harus sama dengan batas yang divalidasi firmware.
 INTERVAL_S_MIN, INTERVAL_S_MAX = 10, 1800
 DURATION_MIN_MIN, DURATION_MIN_MAX = 1, 180
-COMMANDS = ("interval", "reset")
+COMMANDS = ("interval", "reset", "test_tamper")
 
 # Kirim ulang kalau belum dibalas (koneksi GSM device bisa sempat putus).
 RESEND_AFTER = timedelta(minutes=2)
