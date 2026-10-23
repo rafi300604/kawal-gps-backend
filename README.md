@@ -279,7 +279,7 @@ pakai email/password, dapat JWT (`Authorization: Bearer <token>`, berlaku
 ```bash
 curl -X POST https://gps.jejakpintar.cloud/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "skripsi@tester.com", "password": "tester123"}'
+  -d '{"email": "skripsi@tester.com", "password": "<password akun>"}'
 # -> {"accessToken": "...", "tokenType": "bearer", "user": {...}}
 ```
 
