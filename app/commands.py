@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import models
 
 # Harus sama dengan batas yang divalidasi firmware.
-INTERVAL_S_MIN, INTERVAL_S_MAX = 10, 1800
+INTERVAL_S_MIN, INTERVAL_S_MAX = 2, 1800
 DURATION_MIN_MIN, DURATION_MIN_MAX = 1, 180
 # Sama dengan batas alarm tamper firmware (TAMPER_ALARM_MAX_MS 20 detik).
 DURATION_S_MIN, DURATION_S_MAX = 1, 20
