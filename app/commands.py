@@ -7,9 +7,6 @@ Topic & format (kontrak dengan firmware skripsi.ino, lihat FIRMWARE_CONTRACT.md)
     {"id":14,"cmd":"buzzer","duration_s":10}   (bunyikan buzzer 1-20 detik)
     {"id":15,"cmd":"test_tamper"}   (simulasi tamper: buzzer + kirim titik
                                     tamper bertanda uji, flags bit4)
-    {"id":16,"cmd":"lte_off","duration_s":20}   (uji failover: radio seluler
-    {"id":17,"cmd":"wifi_off","duration_s":20}   / WiFi diputus 1-1800 detik,
-                                    lalu dipulihkan device sendiri)
 - device membalas ke `cmd-ack/<SN>`, payload JSON:
     {"id":12,"status":"applied", ...} / {"id":13,"status":"reset"} /
     {"id":14,"status":"rejected","reason":"..."}
@@ -37,10 +34,7 @@ INTERVAL_S_MIN, INTERVAL_S_MAX = 2, 1800
 DURATION_MIN_MIN, DURATION_MIN_MAX = 1, 180
 # Sama dengan batas alarm tamper firmware (TAMPER_ALARM_MAX_MS 20 detik).
 DURATION_S_MIN, DURATION_S_MAX = 1, 20
-# Uji failover / store-and-forward (CMD_PUTUS_MIN_S/MAX_S firmware).
-PATH_OFF_S_MIN, PATH_OFF_S_MAX = 1, 1800
-PATH_OFF_COMMANDS = ("lte_off", "wifi_off")
-COMMANDS = ("interval", "reset", "test_tamper", "buzzer") + PATH_OFF_COMMANDS
+COMMANDS = ("interval", "reset", "test_tamper", "buzzer")
 
 # Kirim ulang kalau belum dibalas (koneksi GSM device bisa sempat putus).
 RESEND_AFTER = timedelta(minutes=2)
@@ -70,9 +64,6 @@ def validation_error(
     if cmd == "buzzer":
         if duration_s is None or not DURATION_S_MIN <= duration_s <= DURATION_S_MAX:
             return f"duration_s harus {DURATION_S_MIN}-{DURATION_S_MAX} detik"
-    if cmd in PATH_OFF_COMMANDS:
-        if duration_s is None or not PATH_OFF_S_MIN <= duration_s <= PATH_OFF_S_MAX:
-            return f"duration_s harus {PATH_OFF_S_MIN}-{PATH_OFF_S_MAX} detik"
     return None
 
 
@@ -81,7 +72,7 @@ def build_payload(command: models.DeviceCommand) -> str:
     if command.cmd == "interval":
         body["interval_s"] = command.interval_s
         body["duration_min"] = command.duration_min
-    elif command.cmd == "buzzer" or command.cmd in PATH_OFF_COMMANDS:
+    elif command.cmd == "buzzer":
         body["duration_s"] = command.duration_s
     return json.dumps(body, separators=(",", ":"))
 
