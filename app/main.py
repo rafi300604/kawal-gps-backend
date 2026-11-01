@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import delete, select
@@ -24,6 +26,9 @@ from .gps_mqtt_client import (
 # Skema tabel dikelola lewat Alembic (alembic/versions/), dijalankan
 # otomatis oleh docker-entrypoint.sh sebelum uvicorn start.
 app = FastAPI(title="Kawal GPS Telemetry Ingest")
+
+# Batas titik /telemetry/{sn}/history?since=... (±7 hari data per 30 detik).
+HISTORY_SINCE_MAX = 20000
 
 
 @app.on_event("startup")
@@ -232,13 +237,17 @@ async def delete_device(sn: str, db: AsyncSession = Depends(get_db)):
     response_model=list[schemas.TelemetryOut],
     dependencies=[Depends(require_admin)],
 )
-async def telemetry_history(sn: str, limit: int = 50, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(models.Telemetry)
-        .where(models.Telemetry.device_sn == sn)
-        .order_by(models.Telemetry.ts.desc())
-        .limit(min(limit, 500))
-    )
+async def telemetry_history(
+    sn: str, limit: int = 50, since: datetime | None = None, db: AsyncSession = Depends(get_db)
+):
+    """Tanpa `since`: `limit` titik terbaru (maks 500). Dengan `since` (ISO-8601):
+    titik sejak waktu itu, maks HISTORY_SINCE_MAX -- dipakai app supaya lintasan
+    rentang waktu yang dipilih tergambar utuh, tidak terpotong di 500 titik."""
+    query = select(models.Telemetry).where(models.Telemetry.device_sn == sn)
+    if since is not None:
+        query = query.where(models.Telemetry.ts >= since)
+    cap = HISTORY_SINCE_MAX if since is not None else 500
+    result = await db.execute(query.order_by(models.Telemetry.ts.desc()).limit(min(limit, cap)))
     return result.scalars().all()
 
 
