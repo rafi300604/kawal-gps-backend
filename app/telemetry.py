@@ -123,6 +123,11 @@ async def persist_telemetry(
     device.last_heading = heading
     device.last_transmitted_at = timestamp
     device.tamper = tamper
+    # Data baru = device pasti tersambung lagi (juga menutup kasus pesan "online"
+    # yang tidak sampai).
+    if device.online is False:
+        db.add(models.DeviceAlert(device_sn=sn, type="online", message=f"Device {sn} tersambung kembali", value=None))
+    device.online = True
 
     if QUOTA_WARNING_KEYWORD in data_source.lower():
         cutoff = datetime.now(timezone.utc) - QUOTA_ALERT_COOLDOWN
@@ -176,3 +181,21 @@ async def persist_telemetry(
     await db.commit()
     await db.refresh(device)
     return device
+
+
+async def set_device_online(db: AsyncSession, sn: str, online: bool) -> bool:
+    """Catat perubahan status koneksi dari topic status/<SN> + buat alert
+    "offline"/"online" supaya app memunculkan pop-up. True kalau status berubah.
+    Dari None (belum pernah dilaporkan) ke True tidak membuat alert."""
+    result = await db.execute(select(models.Device).where(models.Device.sn == sn))
+    device = result.scalar_one_or_none()
+    if device is None or device.online == online:
+        return False
+    if online is False:
+        db.add(models.DeviceAlert(device_sn=sn, type="offline",
+                                  message=f"Koneksi device {sn} terputus (daya mati atau sinyal hilang)", value=None))
+    elif device.online is False:
+        db.add(models.DeviceAlert(device_sn=sn, type="online", message=f"Device {sn} tersambung kembali", value=None))
+    device.online = online
+    await db.commit()
+    return True

@@ -6,7 +6,12 @@ Payload di topic `telemetry/<SN>` adalah HEX MENTAH (bukan dibungkus JSON)
 -- identitas device datang dari topic, bukan dari payload.
 
 Arah sebaliknya (server -> device): perintah di `cmd/<SN>`, dibalas device di
-`cmd-ack/<SN>` -- lihat app/commands.py."""
+`cmd-ack/<SN>` -- lihat app/commands.py.
+
+Status koneksi: device publish "online" di `status/<SN>` setiap selesai connect
+dan memasang Last Will "offline" di topic yang sama -- broker menerbitkannya
+kalau koneksi device putus tanpa DISCONNECT (daya dicabut, sinyal hilang),
+setelah 1,5x keepalive. Lihat telemetry.set_device_online()."""
 import asyncio
 import os
 import socket
@@ -26,6 +31,12 @@ DISPATCH_EVERY_S = 10
 # cmd/<SN> berdasarkan isi DB; lock ini mencegah ack menghapus retained milik
 # perintah yang baru saja dikirim di sela-sela await keduanya.
 _COMMAND_LOCK: asyncio.Lock | None = None
+# "offline" baru dicatat kalau tidak disusul "online" dalam jeda ini -- saat
+# device sambung ulang sendiri (restart layanan MQTT modem, pindah GSM<->WiFi
+# dengan client id yang sama) broker menerbitkan Will sesi lama tepat sebelum
+# sesi baru publish "online"; jeda ini mencegah pop-up offline palsu.
+OFFLINE_DEBOUNCE_S = 5
+_OFFLINE_PENDING: dict[str, asyncio.Task] = {}
 
 
 def _get_mqtt_config():
@@ -44,6 +55,7 @@ def _get_mqtt_config():
         "client_id": client_id,
         "topic": "telemetry/+",
         "ack_topic": "cmd-ack/+",
+        "status_topic": "status/+",
         "use_tls": os.getenv("GPS_MQTT_TLS", "false").lower() == "true",
     }
 
@@ -81,8 +93,9 @@ async def _handle_telemetry_message(sn: str, hex_payload: str):
 def _on_connect(client, userdata, flags, rc, properties=None):
     config = _get_mqtt_config()
     if rc == 0:
-        print(f"[mqtt] Terhubung; subscribe ke {config['topic']} & {config['ack_topic']}", flush=True)
-        client.subscribe([(config["topic"], 0), (config["ack_topic"], 1)])
+        print(f"[mqtt] Terhubung; subscribe ke {config['topic']}, {config['ack_topic']} & "
+              f"{config['status_topic']}", flush=True)
+        client.subscribe([(config["topic"], 0), (config["ack_topic"], 1), (config["status_topic"], 1)])
         trigger_command_dispatch()  # kirim perintah yang tertunda selama terputus
     else:
         print(f"[mqtt] Gagal connect, kode {rc}", flush=True)
@@ -116,7 +129,40 @@ async def _handle_ack_message(sn: str, text: str):
             clear_retained_command(sn)
 
 
+async def _set_online(sn: str, online: bool):
+    async with async_session() as db:
+        if await telemetry.set_device_online(db, sn, online):
+            print(f"[mqtt] status/{sn}: {'online' if online else 'OFFLINE'}", flush=True)
+
+
+async def _offline_after_debounce(sn: str):
+    await asyncio.sleep(OFFLINE_DEBOUNCE_S)
+    _OFFLINE_PENDING.pop(sn, None)
+    await _set_online(sn, False)
+
+
+def _handle_status(sn: str, text: str):
+    """Jalan di main loop (call_soon_threadsafe) supaya _OFFLINE_PENDING
+    hanya disentuh satu thread."""
+    pending = _OFFLINE_PENDING.pop(sn, None)
+    if pending is not None:
+        pending.cancel()
+    if text == "offline":
+        _OFFLINE_PENDING[sn] = _MAIN_LOOP.create_task(_offline_after_debounce(sn))
+    elif text == "online":
+        _MAIN_LOOP.create_task(_set_online(sn, True))
+    else:
+        print(f"[mqtt] status/{sn}: payload tidak dikenali {text!r}", flush=True)
+
+
 def _on_message(client, userdata, msg):
+    status_sn = _extract_sn_from_topic(msg.topic, prefix="status")
+    if status_sn is not None:
+        text = msg.payload.decode("utf-8", "replace").strip()
+        if _MAIN_LOOP is not None and _MAIN_LOOP.is_running():
+            _MAIN_LOOP.call_soon_threadsafe(_handle_status, status_sn, text)
+        return
+
     ack_sn = _extract_sn_from_topic(msg.topic, prefix="cmd-ack")
     if ack_sn is not None:
         try:

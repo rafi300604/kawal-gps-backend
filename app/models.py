@@ -43,6 +43,10 @@ class Device(Base):
     # saat ini. Field ini kasih app sumber kebenaran langsung, tidak perlu
     # hitung-hitungan waktu dari alert lagi.
     tamper: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Status koneksi MQTT device: True setelah pesan "online" di status/<SN> atau
+    # telemetry baru, False setelah Last Will "offline" dari broker (koneksi putus
+    # tanpa DISCONNECT, mis. daya dicabut). None = belum pernah dilaporkan.
+    online: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class Telemetry(Base):
